@@ -47,7 +47,6 @@ export const StockChart = (props: ChartComponentProps) => {
         horzLines: { color: 'rgba(197, 203, 206, 0.3)' },
       },
     });
-    chart.timeScale().fitContent();
 
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#26a69a',
@@ -57,7 +56,10 @@ export const StockChart = (props: ChartComponentProps) => {
       wickDownColor: '#ef5350',
     });
 
-    candleSeries.setData(data);
+    if (data && data.length > 0) {
+      candleSeries.setData(data);
+      chart.timeScale().fitContent();
+    }
 
     window.addEventListener('resize', handleResize);
 

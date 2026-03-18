@@ -49,12 +49,12 @@ export default function Home() {
 
       // 2. Fetch Candle Data (Daily - last 30 days)
       const to = Math.floor(Date.now() / 1000);
-      const from = sobriety(to - 30 * 24 * 60 * 60); // 30 days ago
+      const from = Math.floor(to - 30 * 24 * 60 * 60); // 30 days ago
       
       const candleRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=D&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
       const candleData = await candleRes.json();
 
-      if (candleData.s === "ok") {
+      if (candleData.s === "ok" && candleData.t) {
         const formattedCandles = candleData.t.map((t: number, i: number) => ({
           time: new Date(t * 1000).toISOString().split('T')[0],
           open: candleData.o[i],
