@@ -38,7 +38,7 @@ type Language = 'en' | 'zh';
 type Resolution = '1' | '5' | '15' | '30' | '60' | 'D' | 'W' | 'M';
 type MarketTab = 'US' | 'CN';
 
-// --- Static Data & Metadata ---
+// --- Static Data ---
 const STOCK_METADATA: Record<string, { name: string; sector: string; base: number }> = {
   "AAPL": { name: "Apple Inc.", sector: "Technology", base: 235 },
   "NVDA": { name: "NVIDIA Corp.", sector: "Semiconductors", base: 138 },
@@ -107,22 +107,13 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
+  // New state for live sidebar quotes
+  const [marketQuotes, setMarketQuotes] = useState<Record<string, { c: number, dp: number }>>({});
+  
   const prevPrice = useRef<number>(0);
   const t = TRANSLATIONS[lang];
   const currency = t.currency[marketTab];
   const FINNHUB_API_KEY = "sandbox_c8r4v1iad3if4n8m9j1g";
-
-  const sidebarData = useMemo(() => {
-    const generate = (arr: string[]) => arr.map(s => ({
-      symbol: s,
-      change: (Math.random() * 5 * (Math.random() > 0.3 ? 1 : -1)).toFixed(2)
-    }));
-    return {
-      hot: generate(RECOMMENDATIONS.hot),
-      gainers: generate(RECOMMENDATIONS.gainers),
-      ashares: generate(RECOMMENDATIONS.ashares)
-    };
-  }, []);
 
   const generateMockQuote = useCallback((targetSymbol: string) => {
     const meta = STOCK_METADATA[targetSymbol];
@@ -144,7 +135,6 @@ export default function Home() {
     const d = [];
     const meta = STOCK_METADATA[targetSymbol];
     let p = meta?.base || 100;
-    
     for(let i=100; i>=0; i--) {
       const t = new Date();
       if(['D','W','M'].includes(res)) t.setDate(t.getDate()-i);
@@ -157,15 +147,32 @@ export default function Home() {
     return d;
   }, []);
 
+  // Sync marketQuotes state with current active quote
+  useEffect(() => {
+    if (quote) {
+      setMarketQuotes(prev => ({
+        ...prev,
+        [symbol]: { c: quote.c, dp: quote.dp }
+      }));
+    }
+  }, [quote, symbol]);
+
+  // Initial random values for all sidebar stocks
+  useEffect(() => {
+    const initial: Record<string, { c: number, dp: number }> = {};
+    [...RECOMMENDATIONS.hot, ...RECOMMENDATIONS.gainers, ...RECOMMENDATIONS.ashares].forEach(s => {
+      const q = generateMockQuote(s);
+      initial[s] = { c: q.c, dp: q.dp };
+    });
+    setMarketQuotes(initial);
+  }, [generateMockQuote]);
+
   const fetchData = useCallback(async (targetSymbol: string, res: Resolution, forceCandle = false) => {
     try {
       const isChinaStock = /^[036]\d{5}$/.test(targetSymbol);
-      
       if (!isChinaStock) {
-        // US Market Logic
         const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
         const qData = await qRes.json();
-        
         if (qData.c && qData.c !== 0) {
           if (prevPrice.current !== 0 && targetSymbol === symbol) {
             if (qData.c > prevPrice.current) setPriceFlash('up');
@@ -175,12 +182,10 @@ export default function Home() {
           setQuote(qData);
           prevPrice.current = qData.c;
         } else {
-          // Fallback Quote
           const mockQ = generateMockQuote(targetSymbol);
           setQuote(mockQ);
           prevPrice.current = mockQ.c;
         }
-
         if (forceCandle || loading) {
           const to = Math.floor(Date.now() / 1000);
           let from = to - (['D', 'W', 'M'].includes(res) ? 150 : 500) * 86400;
@@ -196,13 +201,13 @@ export default function Home() {
           }
         }
       } else {
-        // CN Market Logic (Mock)
         const mockQ = generateMockQuote(targetSymbol);
         setQuote(mockQ);
         if (forceCandle || loading) setCandles(generateMockCandles(res, targetSymbol));
       }
     } catch (err) {
-      setQuote(generateMockQuote(targetSymbol));
+      const mq = generateMockQuote(targetSymbol);
+      setQuote(mq);
       if (forceCandle || loading) setCandles(generateMockCandles(res, targetSymbol));
     } finally {
       setLoading(false);
@@ -220,6 +225,26 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [symbol, resolution, fetchData]);
 
+  // Sidebar drift logic: every 3s, slightly change a random stock in the sidebar to simulate "live" data
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const allSymbols = [...RECOMMENDATIONS.hot, ...RECOMMENDATIONS.gainers, ...RECOMMENDATIONS.ashares];
+      const randomSymbol = allSymbols[Math.floor(Math.random() * allSymbols.length)];
+      if (randomSymbol === symbol) return; // Let main logic handle active symbol
+      
+      setMarketQuotes(prev => {
+        const current = prev[randomSymbol];
+        if (!current) return prev;
+        const drift = (Math.random() - 0.5) * 0.1;
+        return {
+          ...prev,
+          [randomSymbol]: { ...current, dp: current.dp + drift }
+        };
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [symbol]);
+
   useEffect(() => {
     const isChinaStock = /^[036]\d{5}$/.test(symbol);
     setMarketTab(isChinaStock ? 'CN' : 'US');
@@ -228,6 +253,26 @@ export default function Home() {
   const formatCurrency = (val: number | undefined) => {
     if (val === undefined || val === 0) return "---";
     return `${currency}${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
+  };
+
+  const getSidebarItem = (s: string) => {
+    const data = marketQuotes[s] || { c: 0, dp: 0 };
+    return (
+      <button 
+        key={s} onClick={() => setSymbol(s)} 
+        className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}
+      >
+        <div className="text-left">
+          <span className="font-black text-sm block">{s}</span>
+          <span className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-slate-400'}`}>
+            {STOCK_METADATA[s]?.name || "Asset"}
+          </span>
+        </div>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${symbol === s ? 'bg-white/20 text-white' : (data.dp >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600')}`}>
+          {data.dp >= 0 ? '+' : ''}{data.dp.toFixed(2)}%
+        </span>
+      </button>
+    );
   };
 
   return (
@@ -271,38 +316,19 @@ export default function Home() {
               <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.hot} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {sidebarData.hot.map(item => (
-                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{item.symbol}</span>
-                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : (parseFloat(item.change) >= 0 ? 'text-emerald-500' : 'text-rose-500')}`}>
-                        {parseFloat(item.change) >= 0 ? '+' : ''}{item.change}%
-                      </span>
-                    </button>
-                  ))}
+                  {RECOMMENDATIONS.hot.map(getSidebarItem)}
                 </div>
               </div>
               <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.topGainers} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {sidebarData.gainers.map(item => (
-                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{item.symbol}</span>
-                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : 'text-emerald-500'}`}>+{item.change}%</span>
-                    </button>
-                  ))}
+                  {RECOMMENDATIONS.gainers.map(getSidebarItem)}
                 </div>
               </div>
                <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.chinaHot} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {sidebarData.ashares.map(item => (
-                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{item.symbol}</span>
-                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : (parseFloat(item.change) >= 0 ? 'text-emerald-500' : 'text-rose-500')}`}>
-                        {parseFloat(item.change) >= 0 ? '+' : ''}{item.change}%
-                      </span>
-                    </button>
-                  ))}
+                  {RECOMMENDATIONS.ashares.map(getSidebarItem)}
                 </div>
               </div>
             </div>
