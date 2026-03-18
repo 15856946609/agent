@@ -164,9 +164,21 @@ export default function Home() {
           }
         }
       } else {
-        const base = targetSymbol === '600519' ? 1600 : 3000;
-        const newPrice = base + (Math.random() - 0.5) * 50;
-        setQuote({ c: newPrice, d: 15.2, dp: 0.45, h: newPrice+10, l: newPrice-10, o: base, pc: base-5 });
+        const base = targetSymbol === '600519' ? 1600 : (targetSymbol === '300750' ? 240 : (targetSymbol === '000725' ? 4.5 : 3000));
+        const prevClose = base * (1 + (Math.random() - 0.5) * 0.02);
+        const newPrice = prevClose * (1 + (Math.random() - 0.5) * 0.04);
+        const diff = newPrice - prevClose;
+        const diffPercent = (diff / prevClose) * 100;
+        
+        setQuote({ 
+          c: newPrice, 
+          d: diff, 
+          dp: diffPercent, 
+          h: Math.max(newPrice, prevClose) * 1.01, 
+          l: Math.min(newPrice, prevClose) * 0.99, 
+          o: prevClose * (1 + (Math.random() - 0.5) * 0.01), 
+          pc: prevClose 
+        });
         if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
       }
     } catch (err) {
