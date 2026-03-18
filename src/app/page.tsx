@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { StockChart } from '@/components/StockChart';
 import { 
   TrendingUp, 
@@ -38,7 +38,7 @@ type Language = 'en' | 'zh';
 type Resolution = '1' | '5' | '15' | '30' | '60' | 'D' | 'W' | 'M';
 type MarketTab = 'US' | 'CN';
 
-// --- Static Data ---
+// --- Static Data & Metadata ---
 const STOCK_METADATA: Record<string, { name: string; sector: string }> = {
   "AAPL": { name: "Apple Inc.", sector: "Technology" },
   "NVDA": { name: "NVIDIA Corp.", sector: "Semiconductors" },
@@ -113,6 +113,19 @@ export default function Home() {
   const currency = t.currency[marketTab];
   const FINNHUB_API_KEY = "sandbox_c8r4v1iad3if4n8m9j1g";
 
+  // Generate unique random percentages for recommendations on component mount
+  const sidebarData = useMemo(() => {
+    const generate = (arr: string[]) => arr.map(s => ({
+      symbol: s,
+      change: (Math.random() * 5 * (Math.random() > 0.3 ? 1 : -1)).toFixed(2)
+    }));
+    return {
+      hot: generate(RECOMMENDATIONS.hot),
+      gainers: generate(RECOMMENDATIONS.gainers),
+      ashares: generate(RECOMMENDATIONS.ashares)
+    };
+  }, []);
+
   const generateMockData = useCallback((res: Resolution, targetSymbol: string) => {
     const d = [];
     let charCodeSum = 0;
@@ -170,15 +183,7 @@ export default function Home() {
         const diff = newPrice - prevClose;
         const diffPercent = (diff / prevClose) * 100;
         
-        setQuote({ 
-          c: newPrice, 
-          d: diff, 
-          dp: diffPercent, 
-          h: Math.max(newPrice, prevClose) * 1.01, 
-          l: Math.min(newPrice, prevClose) * 0.99, 
-          o: prevClose * (1 + (Math.random() - 0.5) * 0.01), 
-          pc: prevClose 
-        });
+        setQuote({ c: newPrice, d: diff, dp: diffPercent, h: Math.max(newPrice, prevClose) * 1.01, l: Math.min(newPrice, prevClose) * 0.99, o: prevClose * (1 + (Math.random() - 0.5) * 0.01), pc: prevClose });
         if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
       }
     } catch (err) {
@@ -214,23 +219,15 @@ export default function Home() {
             </div>
             <h1 className="text-xl font-black tracking-tighter hidden lg:block">{t.title}</h1>
           </div>
-
           <form onSubmit={(e) => { e.preventDefault(); if(searchInput) { setSymbol(searchInput.toUpperCase()); setSearchInput(""); }}} className="flex-1 max-w-xl relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" placeholder={t.placeholder} value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full bg-slate-100 border-none focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-2xl pl-12 pr-4 py-2.5 transition-all outline-none font-bold text-sm"
-            />
+            <input type="text" placeholder={t.placeholder} value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="w-full bg-slate-100 border-none focus:bg-white focus:ring-2 focus:ring-indigo-500 rounded-2xl pl-12 pr-4 py-2.5 transition-all outline-none font-bold text-sm" />
           </form>
         </div>
-
         <div className="flex items-center gap-4 ml-6">
           <div className="bg-slate-100 p-1 rounded-xl flex border border-slate-200">
             {(['US', 'CN'] as MarketTab[]).map(tab => (
-              <button 
-                key={tab} onClick={() => { setMarketTab(tab); setSymbol(tab === 'US' ? 'NVDA' : '600519'); }}
-                className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${marketTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-              >
+              <button key={tab} onClick={() => { setMarketTab(tab); setSymbol(tab === 'US' ? 'NVDA' : '600519'); }} className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${marketTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`} >
                 {t.tabs[tab.toLowerCase() as keyof typeof t.tabs]}
               </button>
             ))}
@@ -249,43 +246,40 @@ export default function Home() {
             <h3 className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2 mb-6">
               <Zap size={14} className="text-amber-500 fill-amber-500" /> {t.explorer}
             </h3>
-            
             <div className="space-y-8">
               <div>
-                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
-                  {t.hot} <ChevronRight size={14} className="text-slate-300"/>
-                </p>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.hot} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {RECOMMENDATIONS.hot.map(s => (
-                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{s}</span>
-                      <span className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-emerald-500'}`}>+2.4%</span>
+                  {sidebarData.hot.map(item => (
+                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{item.symbol}</span>
+                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : (parseFloat(item.change) >= 0 ? 'text-emerald-500' : 'text-rose-500')}`}>
+                        {parseFloat(item.change) >= 0 ? '+' : ''}{item.change}%
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
               <div>
-                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
-                  {t.topGainers} <ChevronRight size={14} className="text-slate-300"/>
-                </p>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.topGainers} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {RECOMMENDATIONS.gainers.map(s => (
-                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{s}</span>
-                      <TrendingUp size={14} className={symbol === s ? 'text-indigo-200' : 'text-emerald-500'}/>
+                  {sidebarData.gainers.map(item => (
+                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{item.symbol}</span>
+                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : 'text-emerald-500'}`}>+{item.change}%</span>
                     </button>
                   ))}
                 </div>
               </div>
                <div>
-                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
-                  {t.chinaHot} <ChevronRight size={14} className="text-slate-300"/>
-                </p>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between"> {t.chinaHot} <ChevronRight size={14} className="text-slate-300"/> </p>
                 <div className="space-y-2">
-                  {RECOMMENDATIONS.ashares.map(s => (
-                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
-                      <span className="font-black text-sm">{s}</span>
-                      <span className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-rose-500'}`}>-0.8%</span>
+                  {sidebarData.ashares.map(item => (
+                    <button key={item.symbol} onClick={() => setSymbol(item.symbol)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === item.symbol ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{item.symbol}</span>
+                      <span className={`text-[10px] font-bold ${symbol === item.symbol ? 'text-indigo-200' : (parseFloat(item.change) >= 0 ? 'text-emerald-500' : 'text-rose-500')}`}>
+                        {parseFloat(item.change) >= 0 ? '+' : ''}{item.change}%
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -305,9 +299,7 @@ export default function Home() {
                 <div>
                    <p className="text-2xl font-black text-slate-400 mb-2">{STOCK_METADATA[symbol]?.name || "Asset Details"}</p>
                    <div className="flex items-baseline gap-6">
-                      <span className={`text-6xl font-black tracking-tighter transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-500 scale-105' : priceFlash === 'down' ? 'text-rose-500 scale-105' : 'text-slate-900'}`}>
-                        {formatCurrency(quote?.c)}
-                      </span>
+                      <span className={`text-6xl font-black tracking-tighter transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-500 scale-105' : priceFlash === 'down' ? 'text-rose-500 scale-105' : 'text-slate-900'}`}> {formatCurrency(quote?.c)} </span>
                       <div className={`flex items-center text-lg font-black px-4 py-2 rounded-2xl ${quote && quote.d >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
                         {quote && (quote.d >= 0 ? <TrendingUp size={20} className="mr-2" /> : <TrendingDown size={20} className="mr-2" />)}
                         {quote?.d?.toFixed(2)} ({quote?.dp?.toFixed(2)}%)
@@ -315,30 +307,17 @@ export default function Home() {
                    </div>
                 </div>
               </div>
-              
               <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
                  {(['1', '5', '15', '30', '60', 'D', 'W', 'M'] as Resolution[]).map(res => (
-                   <button 
-                      key={res} onClick={() => setResolution(res)}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${resolution === res ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400 hover:text-slate-800'}`}
-                   >
-                     {t.resolutions[res]}
-                   </button>
+                   <button key={res} onClick={() => setResolution(res)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${resolution === res ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-400 hover:text-slate-800'}`} > {t.resolutions[res]} </button>
                  ))}
               </div>
             </header>
-
             <div className="relative h-[580px] w-full rounded-3xl overflow-hidden bg-slate-50 border border-slate-100 group">
-              {loading && (
-                <div className="absolute inset-0 bg-white/60 backdrop-blur-md z-20 flex flex-col items-center justify-center gap-4">
-                  <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-xs font-black text-slate-400 tracking-widest uppercase">{t.syncing}</span>
-                </div>
-              )}
+              {loading && <div className="absolute inset-0 bg-white/60 backdrop-blur-md z-20 flex flex-col items-center justify-center gap-4"> <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div> <span className="text-xs font-black text-slate-400 tracking-widest uppercase">{t.syncing}</span> </div>}
               <div className={`absolute top-4 right-4 z-10 w-3 h-3 rounded-full transition-all duration-300 ${priceFlash === 'up' ? 'bg-emerald-500 scale-150 animate-ping' : priceFlash === 'down' ? 'bg-rose-500 scale-150 animate-ping' : 'bg-slate-300'}`}></div>
               <StockChart data={candles} />
             </div>
-
             <footer className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-12 pt-10 border-t border-slate-50">
                  {[
                    { label: t.stats.open, val: quote?.o, icon: <BarChart3 size={14}/> },
@@ -347,10 +326,7 @@ export default function Home() {
                    { label: t.stats.prevClose, val: quote?.pc, icon: <Clock size={14}/> }
                  ].map((s, idx) => (
                    <div key={idx} className="space-y-3">
-                      <div className="flex items-center gap-2 text-slate-400">
-                        {s.icon}
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">{s.label}</p>
-                      </div>
+                      <div className="flex items-center gap-2 text-slate-400"> {s.icon} <p className="text-[10px] font-black uppercase tracking-[0.2em]">{s.label}</p> </div>
                       <p className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(s.val)}</p>
                    </div>
                  ))}
