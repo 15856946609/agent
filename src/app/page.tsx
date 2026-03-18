@@ -39,20 +39,20 @@ type Resolution = '1' | '5' | '15' | '30' | '60' | 'D' | 'W' | 'M';
 type MarketTab = 'US' | 'CN';
 
 // --- Static Data & Metadata ---
-const STOCK_METADATA: Record<string, { name: string; sector: string }> = {
-  "AAPL": { name: "Apple Inc.", sector: "Technology" },
-  "NVDA": { name: "NVIDIA Corp.", sector: "Semiconductors" },
-  "TSLA": { name: "Tesla, Inc.", sector: "Automotive" },
-  "MSFT": { name: "Microsoft Corp.", sector: "Software" },
-  "GOOGL": { name: "Alphabet Inc.", sector: "Internet" },
-  "AMZN": { name: "Amazon.com", sector: "E-commerce" },
-  "META": { name: "Meta Platforms", sector: "Social Media" },
-  "NFLX": { name: "Netflix, Inc.", sector: "Entertainment" },
-  "600519": { name: "贵州茅台", sector: "Consumer" },
-  "000001": { name: "平安银行", sector: "Finance" },
-  "300750": { name: "宁德时代", sector: "Energy" },
-  "601318": { name: "中国平安", sector: "Insurance" },
-  "000725": { name: "京东方A", sector: "Display" }
+const STOCK_METADATA: Record<string, { name: string; sector: string; base: number }> = {
+  "AAPL": { name: "Apple Inc.", sector: "Technology", base: 235 },
+  "NVDA": { name: "NVIDIA Corp.", sector: "Semiconductors", base: 138 },
+  "TSLA": { name: "Tesla, Inc.", sector: "Automotive", base: 260 },
+  "MSFT": { name: "Microsoft Corp.", sector: "Software", base: 420 },
+  "GOOGL": { name: "Alphabet Inc.", sector: "Internet", base: 165 },
+  "AMZN": { name: "Amazon.com", sector: "E-commerce", base: 185 },
+  "META": { name: "Meta Platforms", sector: "Social Media", base: 580 },
+  "NFLX": { name: "Netflix, Inc.", sector: "Entertainment", base: 760 },
+  "600519": { name: "贵州茅台", sector: "Consumer", base: 1600 },
+  "000001": { name: "平安银行", sector: "Finance", base: 12 },
+  "300750": { name: "宁德时代", sector: "Energy", base: 250 },
+  "601318": { name: "中国平安", sector: "Insurance", base: 55 },
+  "000725": { name: "京东方A", sector: "Display", base: 4.5 }
 };
 
 const RECOMMENDATIONS = {
@@ -61,7 +61,6 @@ const RECOMMENDATIONS = {
   ashares: ["600519", "300750", "000725"]
 };
 
-// --- Translations ---
 const TRANSLATIONS = {
   en: {
     title: "MarketPulse Pro",
@@ -113,7 +112,6 @@ export default function Home() {
   const currency = t.currency[marketTab];
   const FINNHUB_API_KEY = "sandbox_c8r4v1iad3if4n8m9j1g";
 
-  // Generate unique random percentages for recommendations on component mount
   const sidebarData = useMemo(() => {
     const generate = (arr: string[]) => arr.map(s => ({
       symbol: s,
@@ -126,21 +124,34 @@ export default function Home() {
     };
   }, []);
 
-  const generateMockData = useCallback((res: Resolution, targetSymbol: string) => {
+  const generateMockQuote = useCallback((targetSymbol: string) => {
+    const meta = STOCK_METADATA[targetSymbol];
+    const base = meta?.base || 100;
+    const prevClose = base * (1 + (Math.random() - 0.5) * 0.02);
+    const newPrice = prevClose * (1 + (Math.random() - 0.5) * 0.04);
+    const diff = newPrice - prevClose;
+    const diffPercent = (diff / prevClose) * 100;
+    return { 
+      c: newPrice, d: diff, dp: diffPercent, 
+      h: Math.max(newPrice, prevClose) * 1.01, 
+      l: Math.min(newPrice, prevClose) * 0.99, 
+      o: prevClose * (1 + (Math.random() - 0.5) * 0.01), 
+      pc: prevClose 
+    };
+  }, []);
+
+  const generateMockCandles = useCallback((res: Resolution, targetSymbol: string) => {
     const d = [];
-    let charCodeSum = 0;
-    for (let i = 0; i < targetSymbol.length; i++) charCodeSum += targetSymbol.charCodeAt(i);
-    let p = (charCodeSum % 200) + 100; 
-    if (targetSymbol === '600519') p = 1600;
-    if (targetSymbol === 'NVDA') p = 138;
+    const meta = STOCK_METADATA[targetSymbol];
+    let p = meta?.base || 100;
     
     for(let i=100; i>=0; i--) {
       const t = new Date();
       if(['D','W','M'].includes(res)) t.setDate(t.getDate()-i);
       else t.setMinutes(t.getMinutes()-i*15);
-      const o = p + (Math.random()-0.5)*5;
-      const c = o + (Math.random()-0.5)*5;
-      d.push({ time: (['D','W','M'].includes(res)) ? t.toISOString().split('T')[0] : Math.floor(t.getTime()/1000), open: o, high: Math.max(o,c)+2, low: Math.min(o,c)-2, close: c });
+      const o = p + (Math.random()-0.5)*(p*0.02);
+      const c = o + (Math.random()-0.5)*(p*0.02);
+      d.push({ time: (['D','W','M'].includes(res)) ? t.toISOString().split('T')[0] : Math.floor(t.getTime()/1000), open: o, high: Math.max(o,c)*1.01, low: Math.min(o,c)*0.99, close: c });
       p = c;
     }
     return d;
@@ -151,11 +162,11 @@ export default function Home() {
       const isChinaStock = /^[036]\d{5}$/.test(targetSymbol);
       
       if (!isChinaStock) {
-        // US Market Logic (Finnhub)
+        // US Market Logic
         const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
         const qData = await qRes.json();
         
-        if (qData.c) {
+        if (qData.c && qData.c !== 0) {
           if (prevPrice.current !== 0 && targetSymbol === symbol) {
             if (qData.c > prevPrice.current) setPriceFlash('up');
             else if (qData.c < prevPrice.current) setPriceFlash('down');
@@ -163,6 +174,11 @@ export default function Home() {
           }
           setQuote(qData);
           prevPrice.current = qData.c;
+        } else {
+          // Fallback Quote
+          const mockQ = generateMockQuote(targetSymbol);
+          setQuote(mockQ);
+          prevPrice.current = mockQ.c;
         }
 
         if (forceCandle || loading) {
@@ -176,32 +192,22 @@ export default function Home() {
               open: cData.o[i], high: cData.h[i], low: cData.l[i], close: cData.c[i],
             })));
           } else {
-            setCandles(generateMockData(res, targetSymbol));
+            setCandles(generateMockCandles(res, targetSymbol));
           }
         }
       } else {
         // CN Market Logic (Mock)
-        const base = targetSymbol === '600519' ? 1600 : (targetSymbol === '300750' ? 240 : (targetSymbol === '000725' ? 4.5 : 30));
-        const prevClose = base * (1 + (Math.random() - 0.5) * 0.02);
-        const newPrice = prevClose * (1 + (Math.random() - 0.5) * 0.04);
-        const diff = newPrice - prevClose;
-        const diffPercent = (diff / prevClose) * 100;
-        
-        setQuote({ c: newPrice, d: diff, dp: diffPercent, h: Math.max(newPrice, prevClose) * 1.01, l: Math.min(newPrice, prevClose) * 0.99, o: prevClose * (1 + (Math.random() - 0.5) * 0.01), pc: prevClose });
-        if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
+        const mockQ = generateMockQuote(targetSymbol);
+        setQuote(mockQ);
+        if (forceCandle || loading) setCandles(generateMockCandles(res, targetSymbol));
       }
     } catch (err) {
-      if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
+      setQuote(generateMockQuote(targetSymbol));
+      if (forceCandle || loading) setCandles(generateMockCandles(res, targetSymbol));
     } finally {
       setLoading(false);
     }
-  }, [loading, symbol, generateMockData]);
-
-  // Update MarketTab when symbol changes
-  useEffect(() => {
-    const isChinaStock = /^[036]\d{5}$/.test(symbol);
-    setMarketTab(isChinaStock ? 'CN' : 'US');
-  }, [symbol]);
+  }, [loading, symbol, generateMockQuote, generateMockCandles]);
 
   useEffect(() => {
     setLoading(true);
@@ -214,8 +220,13 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [symbol, resolution, fetchData]);
 
+  useEffect(() => {
+    const isChinaStock = /^[036]\d{5}$/.test(symbol);
+    setMarketTab(isChinaStock ? 'CN' : 'US');
+  }, [symbol]);
+
   const formatCurrency = (val: number | undefined) => {
-    if (val === undefined) return "---";
+    if (val === undefined || val === 0) return "---";
     return `${currency}${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   };
 
