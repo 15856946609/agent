@@ -41,7 +41,7 @@ export const StockChart = (props: ChartComponentProps) => {
         textColor,
       },
       width: chartContainerRef.current.clientWidth,
-      height: 400,
+      height: 580,
       grid: {
         vertLines: { color: 'rgba(197, 203, 206, 0.3)' },
         horzLines: { color: 'rgba(197, 203, 206, 0.3)' },
@@ -72,7 +72,7 @@ export const StockChart = (props: ChartComponentProps) => {
   return (
     <div
       ref={chartContainerRef}
-      className="w-full h-[400px]"
+      className="w-full h-full"
     />
   );
 };
