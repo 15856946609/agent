@@ -148,7 +148,10 @@ export default function Home() {
 
   const fetchData = useCallback(async (targetSymbol: string, res: Resolution, forceCandle = false) => {
     try {
-      if (marketTab === 'US') {
+      const isChinaStock = /^[036]\d{5}$/.test(targetSymbol);
+      
+      if (!isChinaStock) {
+        // US Market Logic (Finnhub)
         const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
         const qData = await qRes.json();
         
@@ -177,7 +180,8 @@ export default function Home() {
           }
         }
       } else {
-        const base = targetSymbol === '600519' ? 1600 : (targetSymbol === '300750' ? 240 : (targetSymbol === '000725' ? 4.5 : 3000));
+        // CN Market Logic (Mock)
+        const base = targetSymbol === '600519' ? 1600 : (targetSymbol === '300750' ? 240 : (targetSymbol === '000725' ? 4.5 : 30));
         const prevClose = base * (1 + (Math.random() - 0.5) * 0.02);
         const newPrice = prevClose * (1 + (Math.random() - 0.5) * 0.04);
         const diff = newPrice - prevClose;
@@ -191,7 +195,13 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [marketTab, loading, symbol, generateMockData]);
+  }, [loading, symbol, generateMockData]);
+
+  // Update MarketTab when symbol changes
+  useEffect(() => {
+    const isChinaStock = /^[036]\d{5}$/.test(symbol);
+    setMarketTab(isChinaStock ? 'CN' : 'US');
+  }, [symbol]);
 
   useEffect(() => {
     setLoading(true);
