@@ -27,7 +27,7 @@ interface CandleData {
 }
 
 type Language = 'en' | 'zh';
-type Resolution = '1' | '5' | '15' | 'D' | 'W' | 'M';
+type Resolution = '1' | '5' | '15' | '30' | '60' | 'D' | 'W' | 'M';
 
 const TRANSLATIONS = {
   en: {
@@ -50,6 +50,8 @@ const TRANSLATIONS = {
       '1': '1m',
       '5': '5m',
       '15': '15m',
+      '30': '30m',
+      '60': '1h',
       'D': '1D',
       'W': '1W',
       'M': '1M'
@@ -77,6 +79,8 @@ const TRANSLATIONS = {
       '1': '1分',
       '5': '5分',
       '15': '15分',
+      '30': '30分',
+      '60': '1时',
       'D': '日线',
       'W': '周线',
       'M': '月线'
@@ -102,14 +106,17 @@ export default function Home() {
   const generateMockCandles = useCallback((res: Resolution) => {
     const data: CandleData[] = [];
     let price = 150 + Math.random() * 50;
-    const count = res === 'D' || res === 'W' || res === 'M' ? 100 : 200;
+    const count = 100;
     
     for (let i = count; i >= 0; i--) {
       const time = new Date();
       if (res === 'D') time.setDate(time.getDate() - i);
       else if (res === 'W') time.setDate(time.getDate() - i * 7);
       else if (res === 'M') time.setMonth(time.getMonth() - i);
-      else time.setMinutes(time.getMinutes() - i * parseInt(res));
+      else {
+        const mins = res === '60' ? 60 : parseInt(res);
+        time.setMinutes(time.getMinutes() - i * mins);
+      }
 
       const open = price + (Math.random() - 0.5) * 2;
       const close = open + (Math.random() - 0.5) * 2;
@@ -131,20 +138,21 @@ export default function Home() {
     setLoading(true);
     setError(false);
     try {
-      // 1. Fetch Quote
       const quoteRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
       const quoteData = await quoteRes.json();
       if (quoteData.c) setQuote(quoteData);
 
-      // 2. Fetch Candles
       const to = Math.floor(Date.now() / 1000);
       let from;
       if (res === 'D') from = to - 100 * 24 * 60 * 60;
       else if (res === 'W') from = to - 500 * 24 * 60 * 60;
       else if (res === 'M') from = to - 1000 * 24 * 60 * 60;
-      else from = to - 1000 * 60 * parseInt(res);
+      else {
+        const mins = res === '60' ? 60 : parseInt(res);
+        from = to - 500 * 60 * mins;
+      }
 
-      const candleRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
+      const candleRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res === '60' ? '60' : res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
       const candleData = await candleRes.json();
 
       if (candleData.s === "ok" && candleData.t) {
@@ -177,7 +185,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f8fafc] text-[#1e293b] font-sans selection:bg-blue-100">
-      {/* Enhanced Navigation */}
       <nav className="bg-white/80 backdrop-blur-md border-b sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 shrink-0">
@@ -247,9 +254,8 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* Resolution Selector */}
                 <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                   {(['1', '5', '15', 'D', 'W', 'M'] as Resolution[]).map(res => (
+                   {(['1', '5', '15', '30', '60', 'D', 'W', 'M'] as Resolution[]).map(res => (
                      <button 
                         key={res}
                         onClick={() => setResolution(res)}
