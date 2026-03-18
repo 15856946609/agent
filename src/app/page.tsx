@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { StockChart } from '@/components/StockChart';
 import { 
   TrendingUp, 
@@ -13,9 +13,11 @@ import {
   User,
   PieChart,
   PlusCircle,
-  Trash2,
-  Info,
-  LayoutGrid
+  LayoutGrid,
+  Zap,
+  Flame,
+  BarChart3,
+  ChevronRight
 } from 'lucide-react';
 
 // --- Types ---
@@ -31,30 +33,31 @@ interface CandleData {
   close: number;
 }
 
-interface Position {
-  symbol: string;
-  name: string;
-  avgPrice: number;
-  quantity: number;
-  type: 'US' | 'CN';
-}
-
 type Language = 'en' | 'zh';
 type Resolution = '1' | '5' | '15' | '30' | '60' | 'D' | 'W' | 'M';
 type MarketTab = 'US' | 'CN';
 
-// --- Mock Metadata ---
+// --- Static Data ---
 const STOCK_METADATA: Record<string, { name: string; sector: string }> = {
   "AAPL": { name: "Apple Inc.", sector: "Technology" },
   "NVDA": { name: "NVIDIA Corp.", sector: "Semiconductors" },
   "TSLA": { name: "Tesla, Inc.", sector: "Automotive" },
   "MSFT": { name: "Microsoft Corp.", sector: "Software" },
   "GOOGL": { name: "Alphabet Inc.", sector: "Internet" },
-  "600519": { name: "贵州茅台 (Moutai)", sector: "Consumer" },
-  "000001": { name: "平安银行 (Ping An)", sector: "Finance" },
-  "300750": { name: "宁德时代 (CATL)", sector: "Energy" },
-  "601318": { name: "中国平安 (Ping An)", sector: "Insurance" },
-  "600036": { name: "招商银行 (CMB)", sector: "Finance" }
+  "AMZN": { name: "Amazon.com", sector: "E-commerce" },
+  "META": { name: "Meta Platforms", sector: "Social Media" },
+  "NFLX": { name: "Netflix, Inc.", sector: "Entertainment" },
+  "600519": { name: "贵州茅台", sector: "Consumer" },
+  "000001": { name: "平安银行", sector: "Finance" },
+  "300750": { name: "宁德时代", sector: "Energy" },
+  "601318": { name: "中国平安", sector: "Insurance" },
+  "000725": { name: "京东方A", sector: "Display" }
+};
+
+const RECOMMENDATIONS = {
+  hot: ["NVDA", "TSLA", "AAPL", "META"],
+  gainers: ["GOOGL", "NFLX", "AMZN"],
+  ashares: ["600519", "300750", "000725"]
 };
 
 // --- Translations ---
@@ -62,99 +65,97 @@ const TRANSLATIONS = {
   en: {
     title: "MarketPulse Pro",
     tabs: { us: "US Market", cn: "A-Shares" },
-    user: { login: "Login", logout: "Logout", profile: "LeiLei" },
-    portfolio: { title: "Portfolio", profit: "Profit/Loss", estValue: "Total Value", add: "Add Asset" },
-    watchlist: { title: "Favorites", empty: "No favorites" },
+    user: { profile: "LeiLei" },
+    portfolio: { title: "Portfolio", profit: "Profit/Loss", estValue: "Total Value" },
+    watchlist: { title: "Favorites" },
     stats: { open: "Open", high: "High", low: "Low", prevClose: "Prev Close" },
     resolutions: { '1': '1m', '5': '5m', '15': '15m', '30': '30m', '60': '1h', 'D': '1D', 'W': '1W', 'M': '1M' },
     syncing: "Syncing...",
-    overview: "Market Overview",
+    explorer: "Market Explorer",
+    hot: "Trending",
+    topGainers: "Top Gainers",
+    chinaHot: "CN Hot Picks",
     currency: { US: "$", CN: "¥" },
     placeholder: "Search Symbol or Name..."
   },
   zh: {
     title: "行情脉搏 Pro",
     tabs: { us: "美股市场", cn: "A股市场" },
-    user: { login: "登录", logout: "退出", profile: "磊磊" },
-    portfolio: { title: "持仓管理", profit: "当日盈亏", estValue: "资产总值", add: "添加记录" },
-    watchlist: { title: "自选关注", empty: "暂无自选" },
+    user: { profile: "磊磊" },
+    portfolio: { title: "持仓管理", profit: "当日盈亏", estValue: "资产总值" },
+    watchlist: { title: "自选关注" },
     stats: { open: "今开", high: "最高", low: "最低", prevClose: "昨收" },
     resolutions: { '1': '1分', '5': '5分', '15': '15分', '30': '30分', '60': '1时', 'D': '日线', 'W': '周线', 'M': '月线' },
-    syncing: "行情同步中...",
-    overview: "行情全览",
+    syncing: "实时数据同步中...",
+    explorer: "发现市场",
+    hot: "热门飙升",
+    topGainers: "今日领涨",
+    chinaHot: "A股精选",
     currency: { US: "$", CN: "¥" },
-    placeholder: "搜索股票代码或名称..."
+    placeholder: "搜索代码或公司名称..."
   }
 };
 
 export default function Home() {
   const [lang, setLang] = useState<Language>('zh');
   const [marketTab, setMarketTab] = useState<MarketTab>('US');
-  const [symbol, setSymbol] = useState("AAPL");
+  const [symbol, setSymbol] = useState("NVDA");
   const [resolution, setResolution] = useState<Resolution>('D');
   const [searchInput, setSearchInput] = useState("");
   const [quote, setQuote] = useState<StockQuote | null>(null);
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  // User State
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
-  const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
-
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
+  
+  const prevPrice = useRef<number>(0);
   const t = TRANSLATIONS[lang];
   const currency = t.currency[marketTab];
-  const stockName = STOCK_METADATA[symbol]?.name || symbol;
-
   const FINNHUB_API_KEY = "sandbox_c8r4v1iad3if4n8m9j1g";
 
-  // --- Persistence ---
-  useEffect(() => {
-    const w = localStorage.getItem('watchlist');
-    const p = localStorage.getItem('positions');
-    if (w) setWatchlist(JSON.parse(w));
-    if (p) setPositions(JSON.parse(p));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('watchlist', JSON.stringify(watchlist));
-    localStorage.setItem('positions', JSON.stringify(positions));
-  }, [watchlist, positions]);
-
-  // --- Fetching Logic ---
+  // --- Data Fetching (Real-time Simulation) ---
   const fetchData = useCallback(async (targetSymbol: string, res: Resolution) => {
-    setLoading(true);
-    setError(false);
+    // We don't set loading to true for background price "jumps" to avoid flicker
     try {
       if (marketTab === 'US') {
         const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
         const qData = await qRes.json();
-        if (qData.c) setQuote(qData);
+        
+        if (qData.c) {
+          if (prevPrice.current !== 0) {
+            if (qData.c > prevPrice.current) setPriceFlash('up');
+            else if (qData.c < prevPrice.current) setPriceFlash('down');
+            setTimeout(() => setPriceFlash(null), 500);
+          }
+          setQuote(qData);
+          prevPrice.current = qData.c;
+        }
 
-        const to = Math.floor(Date.now() / 1000);
-        let from = to - (['D', 'W', 'M'].includes(res) ? 100 : 500) * 86400;
-        const cRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
-        const cData = await cRes.json();
-
-        if (cData.s === "ok" && cData.t) {
-          setCandles(cData.t.map((ts: number, i: number) => ({
-            time: (['D', 'W', 'M'].includes(res)) ? new Date(ts * 1000).toISOString().split('T')[0] : ts,
-            open: cData.o[i], high: cData.h[i], low: cData.l[i], close: cData.c[i],
-          })));
-        } else throw new Error("API Limit");
+        // Only fetch full candles when symbol or resolution changes
+        if (loading) {
+          const to = Math.floor(Date.now() / 1000);
+          let from = to - (['D', 'W', 'M'].includes(res) ? 150 : 500) * 86400;
+          const cRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
+          const cData = await cRes.json();
+          if (cData.s === "ok") {
+            setCandles(cData.t.map((ts: number, i: number) => ({
+              time: (['D', 'W', 'M'].includes(res)) ? new Date(ts * 1000).toISOString().split('T')[0] : ts,
+              open: cData.o[i], high: cData.h[i], low: cData.l[i], close: cData.c[i],
+            })));
+          }
+          setLoading(false);
+        }
       } else {
-        // CN Market Mock
-        setQuote({ c: 3200 + Math.random() * 100, d: 15.2, dp: 0.45, h: 3250, l: 3180, o: 3190, pc: 3185 });
-        setCandles(generateMockData(res));
+        // CN Market Mock for "Jumping" effect
+        const base = symbol === '600519' ? 1600 : 3000;
+        const newPrice = base + Math.random() * 50;
+        setQuote({ c: newPrice, d: 15.2, dp: 0.45, h: newPrice+10, l: newPrice-10, o: base, pc: base-5 });
+        if (loading) setCandles(generateMockData(res));
+        setLoading(false);
       }
     } catch (err) {
-      setError(true);
-      setCandles(generateMockData(res));
-    } finally {
       setLoading(false);
     }
-  }, [marketTab]);
+  }, [marketTab, loading, symbol]);
 
   const generateMockData = (res: Resolution) => {
     const d = []; let p = 150;
@@ -171,7 +172,14 @@ export default function Home() {
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchData(symbol, resolution);
+  }, [symbol, resolution]);
+
+  // High-frequency polling for "jumping" data (every 5s)
+  useEffect(() => {
+    const interval = setInterval(() => fetchData(symbol, resolution), 5000);
+    return () => clearInterval(interval);
   }, [symbol, resolution, fetchData]);
 
   const formatCurrency = (val: number | undefined) => {
@@ -179,29 +187,19 @@ export default function Home() {
     return `${currency}${val.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
   };
 
-  // --- Actions ---
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchInput) {
-      const up = searchInput.toUpperCase();
-      setSymbol(up);
-      setSearchInput("");
-    }
-  };
-
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 pb-12">
-      {/* Dynamic Header with Integrated Search */}
-      <nav className="bg-white border-b sticky top-0 z-50 px-4 h-16 flex items-center justify-between shadow-sm backdrop-blur-md bg-white/90">
-        <div className="flex items-center gap-8 flex-1">
+      {/* Dynamic Header */}
+      <nav className="bg-white/95 border-b sticky top-0 z-50 px-6 h-16 flex items-center justify-between shadow-sm backdrop-blur-md">
+        <div className="flex items-center gap-10 flex-1">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="bg-gradient-to-tr from-indigo-600 to-blue-500 p-2 rounded-xl shadow-lg shadow-indigo-100">
+            <div className="bg-indigo-600 p-2 rounded-xl shadow-lg">
               <Activity className="text-white" size={20} />
             </div>
-            <h1 className="text-xl font-black tracking-tighter hidden sm:block">{t.title}</h1>
+            <h1 className="text-xl font-black tracking-tighter hidden lg:block">{t.title}</h1>
           </div>
 
-          <form onSubmit={handleSearch} className="flex-1 max-w-2xl relative">
+          <form onSubmit={(e) => { e.preventDefault(); if(searchInput) { setSymbol(searchInput.toUpperCase()); setSearchInput(""); }}} className="flex-1 max-w-xl relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
               type="text" placeholder={t.placeholder} value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
@@ -210,98 +208,106 @@ export default function Home() {
           </form>
         </div>
 
-        <div className="flex items-center gap-4 ml-4">
-          <div className="bg-slate-100 p-1 rounded-xl hidden md:flex border border-slate-200">
+        <div className="flex items-center gap-4 ml-6">
+          <div className="bg-slate-100 p-1 rounded-xl flex border border-slate-200">
             {(['US', 'CN'] as MarketTab[]).map(tab => (
               <button 
-                key={tab} onClick={() => { setMarketTab(tab); setSymbol(tab === 'US' ? 'AAPL' : '600519'); }}
+                key={tab} onClick={() => { setMarketTab(tab); setSymbol(tab === 'US' ? 'NVDA' : '600519'); }}
                 className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${marketTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
               >
                 {t.tabs[tab.toLowerCase() as keyof typeof t.tabs]}
               </button>
             ))}
           </div>
-          <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="p-2.5 hover:bg-slate-100 rounded-xl border border-slate-200 transition-colors"><Globe size={18}/></button>
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
-            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-black text-xs">L</div>
-            <span className="text-sm font-black hidden sm:block">{t.user.profile}</span>
+          <button onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} className="p-2.5 hover:bg-slate-100 rounded-xl border border-slate-200"><Globe size={18}/></button>
+          <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
+             <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-xs shadow-md">L</div>
+             <span className="text-sm font-black hidden md:block">{t.user.profile}</span>
           </div>
         </div>
       </nav>
 
       <div className="max-w-[1700px] mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Sidebar: Market Overview & Favorites */}
+        {/* Sidebar: Discovery / Recommendation Navigation */}
         <aside className="lg:col-span-3 space-y-8">
-          {/* Portfolio & Assets */}
-          <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-black text-xs text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <PieChart size={14} className="text-indigo-600" /> {t.portfolio.title}
-              </h3>
-              <PlusCircle size={20} className="text-slate-300 hover:text-indigo-600 cursor-pointer transition-colors" />
-            </div>
-            <div className="space-y-4">
-              <div className="bg-gradient-to-br from-indigo-600 to-blue-700 p-5 rounded-2xl text-white shadow-xl shadow-indigo-100">
-                <p className="text-[10px] font-black opacity-70 uppercase mb-1">{t.portfolio.estValue}</p>
-                <p className="text-2xl font-black tracking-tight">{formatCurrency(245800.00)}</p>
-                <div className="mt-4 flex items-center gap-2 text-[10px] font-bold bg-white/10 w-fit px-2 py-1 rounded-full">
-                  <TrendingUp size={12}/> +12.5%
+          <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+            <h3 className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2 mb-6">
+              <Zap size={14} className="text-amber-500 fill-amber-500" /> {t.explorer}
+            </h3>
+            
+            <div className="space-y-8">
+              {/* Category: Hot */}
+              <div>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
+                  {t.hot} <ChevronRight size={14} className="text-slate-300"/>
+                </p>
+                <div className="space-y-2">
+                  {RECOMMENDATIONS.hot.map(s => (
+                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{s}</span>
+                      <span className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-emerald-500'}`}>+2.4%</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
-          </section>
 
-          {/* Favorites List */}
-          <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <h3 className="font-black text-xs text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-6">
-              <Star size={14} className="text-amber-400 fill-amber-400" /> {t.watchlist.title}
-            </h3>
-            <div className="space-y-3">
-              {(watchlist.length > 0 ? watchlist : ["AAPL", "NVDA", "600519"]).map(s => (
-                <button 
-                  key={s} onClick={() => setSymbol(s)}
-                  className={`w-full group flex justify-between items-center p-4 rounded-2xl border transition-all ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-indigo-200'}`}
-                >
-                  <div className="text-left">
-                    <p className="font-black tracking-tight leading-none mb-1">{s}</p>
-                    <p className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-slate-400'}`}>
-                      {STOCK_METADATA[s]?.name || "Stock Market"}
-                    </p>
-                  </div>
-                  <TrendingUp size={16} className={symbol === s ? "text-indigo-200" : "text-emerald-500"} />
-                </button>
-              ))}
+              {/* Category: Gainers */}
+              <div>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
+                  {t.topGainers} <ChevronRight size={14} className="text-slate-300"/>
+                </p>
+                <div className="space-y-2">
+                  {RECOMMENDATIONS.gainers.map(s => (
+                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{s}</span>
+                      <TrendingUp size={14} className={symbol === s ? 'text-indigo-200' : 'text-emerald-500'}/>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+               {/* Category: CN Market */}
+               <div>
+                <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
+                  {t.chinaHot} <ChevronRight size={14} className="text-slate-300"/>
+                </p>
+                <div className="space-y-2">
+                  {RECOMMENDATIONS.ashares.map(s => (
+                    <button key={s} onClick={() => setSymbol(s)} className={`w-full flex justify-between items-center p-3 rounded-xl transition-all border ${symbol === s ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-transparent hover:border-slate-200'}`}>
+                      <span className="font-black text-sm">{s}</span>
+                      <span className={`text-[10px] font-bold ${symbol === s ? 'text-indigo-200' : 'text-rose-500'}`}>-0.8%</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </section>
         </aside>
 
-        {/* Main Workspace */}
+        {/* Main Chart Area */}
         <div className="lg:col-span-9 space-y-8">
-          {/* Analysis View */}
           <article className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10">
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <h2 className="text-6xl font-black tracking-tighter text-slate-900">{symbol}</h2>
-                  <div className="h-10 w-px bg-slate-200 mx-2 hidden md:block"></div>
-                  <div className="flex flex-col justify-center">
-                    <p className="text-xl font-black text-slate-400 leading-none">{stockName}</p>
-                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] mt-1">
-                      {STOCK_METADATA[symbol]?.sector || "Market Asset"}
-                    </p>
-                  </div>
+                  <div className="px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-black rounded-lg uppercase tracking-widest">{marketTab} MARKET</div>
+                  <h2 className="text-7xl font-black tracking-tighter text-slate-900">{symbol}</h2>
                 </div>
-                <div className="flex items-baseline gap-4">
-                  <span className="text-5xl font-black tracking-tighter text-slate-900">{formatCurrency(quote?.c)}</span>
-                  <span className={`flex items-center text-base font-black px-4 py-1.5 rounded-2xl ${quote && quote.d >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                    {quote && (quote.d >= 0 ? <TrendingUp size={18} className="mr-1.5" /> : <TrendingDown size={18} className="mr-1.5" />)}
-                    {quote?.d?.toFixed(2)} ({quote?.dp?.toFixed(2)}%)
-                  </span>
+                <div>
+                   <p className="text-2xl font-black text-slate-400 mb-2">{STOCK_METADATA[symbol]?.name || "Asset Details"}</p>
+                   <div className="flex items-baseline gap-6">
+                      <span className={`text-6xl font-black tracking-tighter transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-500 scale-105' : priceFlash === 'down' ? 'text-rose-500 scale-105' : 'text-slate-900'}`}>
+                        {formatCurrency(quote?.c)}
+                      </span>
+                      <div className={`flex items-center text-lg font-black px-4 py-2 rounded-2xl ${quote && quote.d >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                        {quote && (quote.d >= 0 ? <TrendingUp size={20} className="mr-2" /> : <TrendingDown size={20} className="mr-2" />)}
+                        {quote?.d?.toFixed(2)} ({quote?.dp?.toFixed(2)}%)
+                      </div>
+                   </div>
                 </div>
               </div>
               
-              {/* Resolution Controls */}
               <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
                  {(['1', '5', '15', '30', '60', 'D', 'W', 'M'] as Resolution[]).map(res => (
                    <button 
@@ -314,56 +320,37 @@ export default function Home() {
               </div>
             </header>
 
-            {/* Chart Container */}
-            <div className="relative h-[550px] w-full rounded-3xl overflow-hidden bg-slate-50 border border-slate-100">
+            {/* Main Chart with Jumping State */}
+            <div className="relative h-[580px] w-full rounded-3xl overflow-hidden bg-slate-50 border border-slate-100 group">
               {loading && (
-                <div className="absolute inset-0 bg-white/60 backdrop-blur-md z-10 flex flex-col items-center justify-center gap-4">
+                <div className="absolute inset-0 bg-white/60 backdrop-blur-md z-20 flex flex-col items-center justify-center gap-4">
                   <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                   <span className="text-xs font-black text-slate-400 tracking-widest uppercase">{t.syncing}</span>
                 </div>
               )}
+              {/* Animated pulse overlay when price jumps */}
+              <div className={`absolute top-4 right-4 z-10 w-3 h-3 rounded-full transition-all duration-300 ${priceFlash === 'up' ? 'bg-emerald-500 scale-150 animate-ping' : priceFlash === 'down' ? 'bg-rose-500 scale-150 animate-ping' : 'bg-slate-300'}`}></div>
               <StockChart data={candles} />
             </div>
 
-            {/* Market Data Grid */}
-            <footer className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-10 pt-10 border-t border-slate-50">
+            {/* Price Detail Stats */}
+            <footer className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-12 pt-10 border-t border-slate-50">
                  {[
-                   { label: t.stats.open, val: quote?.o },
-                   { label: t.stats.high, val: quote?.h },
-                   { label: t.stats.low, val: quote?.l },
-                   { label: t.stats.prevClose, val: quote?.pc }
+                   { label: t.stats.open, val: quote?.o, icon: <BarChart3 size={14}/> },
+                   { label: t.stats.high, val: quote?.h, icon: <TrendingUp size={14}/> },
+                   { label: t.stats.low, val: quote?.l, icon: <TrendingDown size={14}/> },
+                   { label: t.stats.prevClose, val: quote?.pc, icon: <Clock size={14}/> }
                  ].map((s, idx) => (
-                   <div key={idx} className="space-y-2 group">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] group-hover:text-indigo-500 transition-colors">{s.label}</p>
-                      <p className="text-2xl font-black text-slate-800">{formatCurrency(s.val)}</p>
+                   <div key={idx} className="space-y-3">
+                      <div className="flex items-center gap-2 text-slate-400">
+                        {s.icon}
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">{s.label}</p>
+                      </div>
+                      <p className="text-3xl font-black text-slate-900 tracking-tight">{formatCurrency(s.val)}</p>
                    </div>
                  ))}
             </footer>
           </article>
-
-          {/* Quick Info Grid / Market Overview */}
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-                <div className="bg-amber-50 p-3 rounded-2xl text-amber-500"><Info size={24}/></div>
-                <div>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Market Status</p>
-                   <p className="text-sm font-black text-emerald-500 flex items-center gap-2">
-                     <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span> OPEN
-                   </p>
-                </div>
-             </div>
-             <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-                <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-500"><LayoutGrid size={24}/></div>
-                <div>
-                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Indices</p>
-                   <p className="text-sm font-black">S&P 500: <span className="text-emerald-500">+0.8%</span></p>
-                </div>
-             </div>
-             <div className="bg-indigo-900 p-6 rounded-3xl shadow-xl text-white flex flex-col justify-between">
-                <h4 className="text-xs font-black uppercase tracking-widest opacity-60">LeiLei's Insight</h4>
-                <p className="text-sm font-bold mt-2">"Market volatility remains high, monitor key levels."</p>
-             </div>
-          </section>
         </div>
       </div>
     </main>
