@@ -17,7 +17,8 @@ import {
   Zap,
   Flame,
   BarChart3,
-  ChevronRight
+  ChevronRight,
+  Clock
 } from 'lucide-react';
 
 // --- Types ---
