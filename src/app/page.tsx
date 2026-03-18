@@ -113,53 +113,14 @@ export default function Home() {
   const currency = t.currency[marketTab];
   const FINNHUB_API_KEY = "sandbox_c8r4v1iad3if4n8m9j1g";
 
-  // --- Data Fetching (Real-time Simulation) ---
-  const fetchData = useCallback(async (targetSymbol: string, res: Resolution) => {
-    // We don't set loading to true for background price "jumps" to avoid flicker
-    try {
-      if (marketTab === 'US') {
-        const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
-        const qData = await qRes.json();
-        
-        if (qData.c) {
-          if (prevPrice.current !== 0) {
-            if (qData.c > prevPrice.current) setPriceFlash('up');
-            else if (qData.c < prevPrice.current) setPriceFlash('down');
-            setTimeout(() => setPriceFlash(null), 500);
-          }
-          setQuote(qData);
-          prevPrice.current = qData.c;
-        }
-
-        // Only fetch full candles when symbol or resolution changes
-        if (loading) {
-          const to = Math.floor(Date.now() / 1000);
-          let from = to - (['D', 'W', 'M'].includes(res) ? 150 : 500) * 86400;
-          const cRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
-          const cData = await cRes.json();
-          if (cData.s === "ok") {
-            setCandles(cData.t.map((ts: number, i: number) => ({
-              time: (['D', 'W', 'M'].includes(res)) ? new Date(ts * 1000).toISOString().split('T')[0] : ts,
-              open: cData.o[i], high: cData.h[i], low: cData.l[i], close: cData.c[i],
-            })));
-          }
-          setLoading(false);
-        }
-      } else {
-        // CN Market Mock for "Jumping" effect
-        const base = symbol === '600519' ? 1600 : 3000;
-        const newPrice = base + Math.random() * 50;
-        setQuote({ c: newPrice, d: 15.2, dp: 0.45, h: newPrice+10, l: newPrice-10, o: base, pc: base-5 });
-        if (loading) setCandles(generateMockData(res));
-        setLoading(false);
-      }
-    } catch (err) {
-      setLoading(false);
-    }
-  }, [marketTab, loading, symbol]);
-
-  const generateMockData = (res: Resolution) => {
-    const d = []; let p = 150;
+  const generateMockData = useCallback((res: Resolution, targetSymbol: string) => {
+    const d = [];
+    let charCodeSum = 0;
+    for (let i = 0; i < targetSymbol.length; i++) charCodeSum += targetSymbol.charCodeAt(i);
+    let p = (charCodeSum % 200) + 100; 
+    if (targetSymbol === '600519') p = 1600;
+    if (targetSymbol === 'NVDA') p = 138;
+    
     for(let i=100; i>=0; i--) {
       const t = new Date();
       if(['D','W','M'].includes(res)) t.setDate(t.getDate()-i);
@@ -170,16 +131,59 @@ export default function Home() {
       p = c;
     }
     return d;
-  };
+  }, []);
+
+  const fetchData = useCallback(async (targetSymbol: string, res: Resolution, forceCandle = false) => {
+    try {
+      if (marketTab === 'US') {
+        const qRes = await fetch(`https://finnhub.io/api/v1/quote?symbol=${targetSymbol}&token=${FINNHUB_API_KEY}`);
+        const qData = await qRes.json();
+        
+        if (qData.c) {
+          if (prevPrice.current !== 0 && targetSymbol === symbol) {
+            if (qData.c > prevPrice.current) setPriceFlash('up');
+            else if (qData.c < prevPrice.current) setPriceFlash('down');
+            setTimeout(() => setPriceFlash(null), 500);
+          }
+          setQuote(qData);
+          prevPrice.current = qData.c;
+        }
+
+        if (forceCandle || loading) {
+          const to = Math.floor(Date.now() / 1000);
+          let from = to - (['D', 'W', 'M'].includes(res) ? 150 : 500) * 86400;
+          const cRes = await fetch(`https://finnhub.io/api/v1/stock/candle?symbol=${targetSymbol}&resolution=${res}&from=${from}&to=${to}&token=${FINNHUB_API_KEY}`);
+          const cData = await cRes.json();
+          if (cData.s === "ok" && cData.t) {
+            setCandles(cData.t.map((ts: number, i: number) => ({
+              time: (['D', 'W', 'M'].includes(res)) ? new Date(ts * 1000).toISOString().split('T')[0] : ts,
+              open: cData.o[i], high: cData.h[i], low: cData.l[i], close: cData.c[i],
+            })));
+          } else {
+            setCandles(generateMockData(res, targetSymbol));
+          }
+        }
+      } else {
+        const base = targetSymbol === '600519' ? 1600 : 3000;
+        const newPrice = base + (Math.random() - 0.5) * 50;
+        setQuote({ c: newPrice, d: 15.2, dp: 0.45, h: newPrice+10, l: newPrice-10, o: base, pc: base-5 });
+        if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
+      }
+    } catch (err) {
+      if (forceCandle || loading) setCandles(generateMockData(res, targetSymbol));
+    } finally {
+      setLoading(false);
+    }
+  }, [marketTab, loading, symbol, generateMockData]);
 
   useEffect(() => {
     setLoading(true);
-    fetchData(symbol, resolution);
+    prevPrice.current = 0;
+    fetchData(symbol, resolution, true);
   }, [symbol, resolution]);
 
-  // High-frequency polling for "jumping" data (every 5s)
   useEffect(() => {
-    const interval = setInterval(() => fetchData(symbol, resolution), 5000);
+    const interval = setInterval(() => fetchData(symbol, resolution, false), 5000);
     return () => clearInterval(interval);
   }, [symbol, resolution, fetchData]);
 
@@ -190,7 +194,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 pb-12">
-      {/* Dynamic Header */}
       <nav className="bg-white/95 border-b sticky top-0 z-50 px-6 h-16 flex items-center justify-between shadow-sm backdrop-blur-md">
         <div className="flex items-center gap-10 flex-1">
           <div className="flex items-center gap-2 shrink-0">
@@ -229,8 +232,6 @@ export default function Home() {
       </nav>
 
       <div className="max-w-[1700px] mx-auto p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Sidebar: Discovery / Recommendation Navigation */}
         <aside className="lg:col-span-3 space-y-8">
           <section className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
             <h3 className="font-black text-[10px] text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2 mb-6">
@@ -238,7 +239,6 @@ export default function Home() {
             </h3>
             
             <div className="space-y-8">
-              {/* Category: Hot */}
               <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
                   {t.hot} <ChevronRight size={14} className="text-slate-300"/>
@@ -252,8 +252,6 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-
-              {/* Category: Gainers */}
               <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
                   {t.topGainers} <ChevronRight size={14} className="text-slate-300"/>
@@ -267,8 +265,6 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-
-               {/* Category: CN Market */}
                <div>
                 <p className="text-xs font-black text-slate-800 mb-4 flex items-center justify-between">
                   {t.chinaHot} <ChevronRight size={14} className="text-slate-300"/>
@@ -286,7 +282,6 @@ export default function Home() {
           </section>
         </aside>
 
-        {/* Main Chart Area */}
         <div className="lg:col-span-9 space-y-8">
           <article className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 mb-10">
@@ -321,7 +316,6 @@ export default function Home() {
               </div>
             </header>
 
-            {/* Main Chart with Jumping State */}
             <div className="relative h-[580px] w-full rounded-3xl overflow-hidden bg-slate-50 border border-slate-100 group">
               {loading && (
                 <div className="absolute inset-0 bg-white/60 backdrop-blur-md z-20 flex flex-col items-center justify-center gap-4">
@@ -329,12 +323,10 @@ export default function Home() {
                   <span className="text-xs font-black text-slate-400 tracking-widest uppercase">{t.syncing}</span>
                 </div>
               )}
-              {/* Animated pulse overlay when price jumps */}
               <div className={`absolute top-4 right-4 z-10 w-3 h-3 rounded-full transition-all duration-300 ${priceFlash === 'up' ? 'bg-emerald-500 scale-150 animate-ping' : priceFlash === 'down' ? 'bg-rose-500 scale-150 animate-ping' : 'bg-slate-300'}`}></div>
               <StockChart data={candles} />
             </div>
 
-            {/* Price Detail Stats */}
             <footer className="grid grid-cols-2 md:grid-cols-4 gap-8 mt-12 pt-10 border-t border-slate-50">
                  {[
                    { label: t.stats.open, val: quote?.o, icon: <BarChart3 size={14}/> },
